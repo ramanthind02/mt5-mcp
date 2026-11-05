@@ -1,0 +1,9 @@
+# Snippet for ~/.codex/config.toml
+# Claude Code uses the same JSON shape as examples/mcp.json, in .mcp.json.
+
+[mcp_servers.mt5]
+command = "uv"
+args = ["run", "--directory", "C:\\path\\to\\MT5_MCP", "mt5-mcp"]
+
+[mcp_servers.mt5.env]
+MT5_MCP_HOME = "C:\\Users\\you\\.mt5-mcp"

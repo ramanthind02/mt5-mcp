@@ -1,0 +1,20 @@
+# Copy to %USERPROFILE%\.mt5-mcp\terminals.toml
+# The id (the table key) is how the agent selects an account.
+# The same terminal64.exe may appear twice when two logins share an install.
+# Path is the launch path. A junction to an install is a second data folder.
+# Passwords do not go here. Put DARWINEX_DEMO_PASSWORD in secrets.env.
+
+[terminals.darwinex-demo]
+path = 'C:\Program Files\Darwinex MetaTrader 5\terminal64.exe'
+login = 12345678
+server = "Darwinex-Demo"
+role = "demo"
+enabled = true
+
+[terminals.darwinex-live]
+path = 'C:\Program Files\Darwinex MetaTrader 5\terminal64.exe'
+login = 87654321
+server = "Darwinex-Live"
+role = "live"
+enabled = true
+# password_env = "DARWINEX_LIVE_PASSWORD"
