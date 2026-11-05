@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in mt5-mcp failed or disagreed with the README
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Leave passwords, account numbers, and profile JSON out of every field.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. use_terminal ...
+        2. copy_rates ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: mt5-mcp version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Redact usernames, account numbers, and passwords before pasting.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      options:
+        - label: This report has no passwords, account numbers, or profile JSON
+          required: true
