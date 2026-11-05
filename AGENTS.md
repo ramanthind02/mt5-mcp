@@ -65,7 +65,7 @@ A behavior change touches all of these that mention it:
 - the `instructions` string in `server.py`
 - [CHANGELOG.md](CHANGELOG.md) `## [Unreleased]`
 
-Examples in `examples/` stay free of real logins, passwords, and profile JSON. Badge and clone URLs still say `OWNER/mt5-mcp` until the GitHub owner is filled in. Change that placeholder in README, CHANGELOG, CONTRIBUTING, and `.github/` together.
+Examples in `examples/` stay free of real logins, passwords, and profile JSON. The public GitHub path is `ramanthind02/mt5-mcp`. Install instructions use `uvx --from git+https://github.com/ramanthind02/mt5-mcp`, so a client does not need a checkout path.
 
 ## Checks
 

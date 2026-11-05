@@ -1,9 +1,9 @@
 # mt5-mcp
 
-[![CI](https://github.com/OWNER/mt5-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/mt5-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/ramanthind02/mt5-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ramanthind02/mt5-mcp/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![codecov](https://codecov.io/gh/OWNER/mt5-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/OWNER/mt5-mcp)
+[![codecov](https://codecov.io/gh/ramanthind02/mt5-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/ramanthind02/mt5-mcp)
 
 **A research desk for MetaTrader 5, driven in plain language.**
 
@@ -27,7 +27,7 @@ You  →  Cursor / Claude / Codex  →  mt5-mcp  →  the terminal that is alrea
                                         └─ Strategy Tester report + source snapshot
 ```
 
-Badge links use `OWNER/mt5-mcp`. Swap in your GitHub account when the repository is public. The coverage badge fills in after you connect [Codecov](https://about.codecov.io/) and set `CODECOV_TOKEN`. Until then, open the CI job summary.
+The coverage badge fills in after this repository is connected to [Codecov](https://about.codecov.io/) and `CODECOV_TOKEN` is set. Until then, the CI job summary is the coverage record.
 
 ## Contents
 
@@ -84,14 +84,24 @@ This is research software. A backtest is a simulation on stored ticks and bars. 
 
 ### 1. Install
 
+No checkout required:
+
 ```bash
-git clone https://github.com/OWNER/mt5-mcp.git
+uvx --from git+https://github.com/ramanthind02/mt5-mcp mt5-mcp
+```
+
+`MetaTrader5` installs automatically on Windows. History files default to CSV.
+
+To work on the source:
+
+```bash
+git clone https://github.com/ramanthind02/mt5-mcp.git
 cd mt5-mcp
 uv sync
 uv run mt5-mcp
 ```
 
-`MetaTrader5` installs automatically on Windows. History files default to CSV. Add Parquet with `uv sync --extra parquet`.
+Parquet output needs a checkout: `uv sync --extra parquet`.
 
 ### 2. Name your terminals
 
@@ -127,8 +137,12 @@ Open the terminal, log in, and leave it up. Then ask the agent to attach. `launc
 {
   "mcpServers": {
     "mt5": {
-      "command": "uv",
-      "args": ["run", "--directory", "C:\\path\\to\\MT5_MCP", "mt5-mcp"],
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/ramanthind02/mt5-mcp",
+        "mt5-mcp"
+      ],
       "env": { "MT5_MCP_HOME": "C:\\Users\\you\\.mt5-mcp" }
     }
   }
@@ -141,8 +155,8 @@ Restart the client, then try: *"List my terminals and attach to darwinex-demo."*
 
 ```toml
 [mcp_servers.mt5]
-command = "uv"
-args = ["run", "--directory", "C:\\path\\to\\MT5_MCP", "mt5-mcp"]
+command = "uvx"
+args = ["--from", "git+https://github.com/ramanthind02/mt5-mcp", "mt5-mcp"]
 
 [mcp_servers.mt5.env]
 MT5_MCP_HOME = "C:\\Users\\you\\.mt5-mcp"

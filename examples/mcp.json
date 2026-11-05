@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "mt5": {
-      "command": "uv",
-      "args": ["run", "--directory", "C:\\path\\to\\MT5_MCP", "mt5-mcp"],
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/ramanthind02/mt5-mcp", "mt5-mcp"],
       "env": {
         "MT5_MCP_HOME": "C:\\Users\\you\\.mt5-mcp"
       }

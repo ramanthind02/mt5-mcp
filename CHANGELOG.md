@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Pre-commit Ruff hook and pull request checks for conventional titles and a changelog line when `src/mt5_mcp` changes.
+- Clone-free install with `uvx --from git+https://github.com/ramanthind02/mt5-mcp`.
 - Windows CI job so the junction guardrails run on every pull request.
 - `history_coverage` reports the earliest and latest M1 bar already stored in the terminal's yearly `.hcc` files, without downloading.
 - `extend_history` accepts `kind=m1` and downloads one UTC month of minute bars at a time until a month has no bars inside it.
@@ -30,5 +31,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Contributing guide, security policy, code of conduct, and pull request template.
 - MIT license.
 
-[Unreleased]: https://github.com/OWNER/mt5-mcp/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/OWNER/mt5-mcp/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ramanthind02/mt5-mcp/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ramanthind02/mt5-mcp/releases/tag/v0.1.0

@@ -14,13 +14,11 @@ Unit tests mock the terminal. They run without MetaTrader installed.
 ## Setup
 
 ```bash
-git clone https://github.com/OWNER/mt5-mcp.git
+git clone https://github.com/ramanthind02/mt5-mcp.git
 cd mt5-mcp
 uv sync --extra dev
 uv run pytest
 ```
-
-Replace `OWNER` with the GitHub account that hosts the repository.
 
 Copy [examples/terminals.toml](examples/terminals.toml) to `%USERPROFILE%\.mt5-mcp\` when you need a real terminal. Passwords belong in `%USERPROFILE%\.mt5-mcp\secrets.env`, using [examples/secrets.env.example](examples/secrets.env.example) as the shape. Leave those files out of git.
 
