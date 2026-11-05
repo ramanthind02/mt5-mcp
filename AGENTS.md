@@ -53,7 +53,7 @@ A new resource or prompt updates `guides.py`, the README tables, and the changel
 ## Tests
 
 - New tests live in `tests/` and mock MetaTrader. Pass fakes for `popen`, runners, and the `mt5` object. Do not call `import_mt5()` from a test.
-- Junction and launch-path tests that create a real Windows link use `@pytest.mark.skipif(os.name != "nt", ...)`. Ubuntu CI runs the rest.
+- Junction and launch-path tests that create a real Windows link use `@pytest.mark.skipif(os.name != "nt", ...)`. Ubuntu CI skips those two. The `test-windows` job in `.github/workflows/ci.yml` runs the full suite, including `test_junction_and_target_keep_separate_data_folders` and `test_run_backtest_refuses_a_junction_install`. `test_use_terminal_never_logs_in` runs on both.
 - Keep coverage of `src/mt5_mcp` at or above `--cov-fail-under` in [pyproject.toml](pyproject.toml). The floor is 67% today. Raise it when coverage goes up. Do not lower it to make a change pass.
 
 ## Docs that drift together
@@ -72,12 +72,12 @@ Examples in `examples/` stay free of real logins, passwords, and profile JSON. B
 ```bash
 uv sync --extra dev
 uv run pre-commit install
-uv run ruff check src tests scripts
-uv run ruff format --check src tests scripts
+uv run ruff check src tests
+uv run ruff format --check src tests
 uv run pytest
 ```
 
-`pre-commit install` runs Ruff on each commit, using the Ruff version locked in `uv.lock`. Ruff formats `src/`, `tests/`, and `scripts/`. The formatter line length is 100. `E501` is ignored so long guide strings stay readable. If `uv sync` cannot replace `mt5-mcp.exe`, a server process is holding that file. Stop it, then sync again.
+`pre-commit install` runs Ruff on each commit, using the Ruff version locked in `uv.lock`. Ruff formats `src/` and `tests/`. The formatter line length is 100. `E501` is ignored so long guide strings stay readable. If `uv sync` cannot replace `mt5-mcp.exe`, a server process is holding that file. Stop it, then sync again.
 
 On a pull request, `.github/workflows/maintenance.yml` checks two things. The title is a conventional commit. A `feat` or `fix` that touches `src/mt5_mcp/` also updates `CHANGELOG.md`. `chore`, `ci`, `docs`, `test`, and `refactor` skip the changelog check. Dependabot is skipped and opens with a `chore(deps):` title.
 
@@ -96,5 +96,5 @@ A pull request fills in `.github/pull_request_template.md`, including the line t
 - `src/mt5_mcp/` server, tools, and guides
 - `tests/test_mt5_mcp.py` mocked unit tests
 - `examples/` client config and a sample terminal registry
-- `scripts/` local live-terminal helpers, linted in CI, not part of the test suite
+- `scripts/` local live-terminal helpers, gitignored, so CI does not lint it and the test suite does not run it
 - `.github/` CI, Dependabot, and issue templates

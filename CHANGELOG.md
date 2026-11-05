@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Pre-commit Ruff hook, CI lint for `scripts/`, and pull request checks for conventional titles and a changelog line when `src/mt5_mcp` changes.
+- Pre-commit Ruff hook and pull request checks for conventional titles and a changelog line when `src/mt5_mcp` changes.
+- Windows CI job so the junction guardrails run on every pull request.
 - `history_coverage` reports the earliest and latest M1 bar already stored in the terminal's yearly `.hcc` files, without downloading.
 - `extend_history` accepts `kind=m1` and downloads one UTC month of minute bars at a time until a month has no bars inside it.
 

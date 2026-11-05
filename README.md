@@ -328,11 +328,11 @@ mt5-mcp/
 uv sync --extra dev
 uv run pre-commit install
 uv run pytest
-uv run ruff check src tests scripts
-uv run ruff format --check src tests scripts
+uv run ruff check src tests
+uv run ruff format --check src tests
 ```
 
-The tests mock the MetaTrader API. They do not open a terminal. Coverage of `src/mt5_mcp` stays at or above 67%. CI on GitHub runs Ruff, pytest on Python 3.11 and 3.13, and a package build. Pull requests also check the title and, for a `feat` or `fix` under `src/mt5_mcp/`, a changelog line.
+The tests mock the MetaTrader API. They do not open a terminal. Coverage of `src/mt5_mcp` stays at or above 67%. CI on GitHub runs Ruff, pytest on Ubuntu for Python 3.11 and 3.13, the full suite on Windows, and a package build. The Windows job is what runs the junction guardrails. Pull requests also check the title and, for a `feat` or `fix` under `src/mt5_mcp/`, a changelog line.
 
 Branches, commit messages, and the pull request checklist are in [CONTRIBUTING.md](CONTRIBUTING.md). Notable changes go in [CHANGELOG.md](CHANGELOG.md). Vulnerability reports follow [SECURITY.md](SECURITY.md).
 

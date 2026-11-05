@@ -41,12 +41,12 @@ uv run pre-commit install
 The hook runs Ruff on the files you commit. Before you open a pull request:
 
 ```bash
-uv run ruff check src tests scripts
-uv run ruff format --check src tests scripts
+uv run ruff check src tests
+uv run ruff format --check src tests
 uv run pytest
 ```
 
-`uv run ruff format src tests scripts` rewrites formatting. `uv run ruff check --fix src tests scripts` applies the lint fixes Ruff can do on its own.
+`uv run ruff format src tests` rewrites formatting. `uv run ruff check --fix src tests` applies the lint fixes Ruff can do on its own.
 
 ## What a change includes
 
