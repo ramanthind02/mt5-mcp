@@ -1,0 +1,4 @@
+Parts of the terminal-folder scan, MetaEditor compile-log parser, Strategy Tester
+HTML parser, and tester.ini input generator are adapted from
+mcp-mt5 by PHUICMT (https://github.com/PHUICMT/mcp-mt5), which is licensed under
+the MIT License. Copyright (c) 2026 PHUICMT.
