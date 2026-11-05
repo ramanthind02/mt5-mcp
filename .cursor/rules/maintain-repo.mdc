@@ -1,0 +1,18 @@
+---
+description: Keep README, changelog, tests, and the read-only boundary in sync
+alwaysApply: true
+---
+
+# Maintain this repo
+
+mt5-mcp is a public, read-only MetaTrader 5 research server. Full notes are in AGENTS.md and CONTRIBUTING.md.
+
+- Do not add a tool that places, modifies, or closes a live order.
+- Do not add a login tool, and do not commit `.env`, `secrets.env`, profiles, or exported history.
+- Behavior changes need a mocked test, a line under `## [Unreleased]` in CHANGELOG.md, and a README update when a tool, resource, or prompt changes.
+- New tools follow the checklist in AGENTS.md: owning module, thin `server.py` wrapper, `test_server_tool_surface`, guides, and the server instructions string.
+- `scripts/` is for local terminal runs. A capability a user can ask for goes in `src/mt5_mcp/` with a mocked test.
+- Update `src/mt5_mcp/guides.py` when agent-facing guidance changes.
+- Commit messages and pull request titles use Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `ci:`).
+- A `feat` or `fix` that changes `src/mt5_mcp/` adds a line under `## [Unreleased]` in CHANGELOG.md. The maintenance workflow enforces that.
+- Keep coverage at or above the `--cov-fail-under` value in pyproject.toml. Add tests instead of lowering the floor.

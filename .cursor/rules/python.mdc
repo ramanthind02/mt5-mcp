@@ -1,0 +1,13 @@
+---
+description: Python formatting, lint, and test rules
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python
+
+- Format and lint with Ruff: `uv run ruff check src tests scripts` and `uv run ruff format src tests scripts`. The pre-commit hook runs the same checks.
+- Line length is 100. `E501` is ignored so long strings in guides stay intact. Let the formatter wrap code.
+- New tests mock MetaTrader. They do not launch `terminal64.exe` or import a live terminal session.
+- A new tool on the server stays read-only toward the trade server unless the product decision in AGENTS.md changes.
+- `MetaTrader5` is imported inside the function that needs it, so unit tests and Ubuntu CI run without the terminal package.
