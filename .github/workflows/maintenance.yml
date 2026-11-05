@@ -1,0 +1,57 @@
+name: Maintenance
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  pr-title:
+    name: Conventional title
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Check pull request title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          pattern='^(feat|fix|docs|test|refactor|ci|chore|revert)(\([^)]+\))?!?: .+'
+          if ! printf '%s\n' "$TITLE" | grep -Eq "$pattern"; then
+            echo "Pull request titles use Conventional Commits."
+            echo "Examples: feat: export tick months, fix: refuse a junction launch"
+            echo "Got: $TITLE"
+            exit 1
+          fi
+
+  changelog:
+    name: Changelog
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require an Unreleased note for product changes
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if printf '%s\n' "$TITLE" | grep -Eq '^(chore|ci|docs|test|refactor)(\([^)]+\))?!?:'; then
+            echo "This title does not require a changelog entry."
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE" "$HEAD")
+          printf '%s\n' "$files"
+          if printf '%s\n' "$files" | grep -Eq '^src/mt5_mcp/' \
+            && ! printf '%s\n' "$files" | grep -qx 'CHANGELOG.md'; then
+            echo "src/mt5_mcp changed. Add a line under ## [Unreleased] in CHANGELOG.md."
+            exit 1
+          fi
