@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import struct
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -292,8 +293,13 @@ def copy_rates(
                     pause,
                 )
                 rows = _standard_rate_rows(_rows(block), timeframe)
-                if end is not None:
-                    rows = [row for row in rows if (_row_time(row) or end) <= end]
+                rows = [
+                    row
+                    for row in rows
+                    if (moment := _row_time(row)) is not None
+                    and (start is None or moment >= start)
+                    and (end is None or moment <= end)
+                ]
                 if not rows:
                     break
                 writer.write(rows)
@@ -336,12 +342,6 @@ def copy_rates(
     }
 
 
-def _bar_at(mt5, symbol: str, timeframe_code: int, pos: int) -> dict | None:
-    block = mt5.copy_rates_from_pos(symbol, timeframe_code, pos, 1)
-    rows = _rows(block)
-    return rows[0] if rows else None
-
-
 def _probe_daily(mt5, symbol: str, timeframe: str) -> tuple[list[dict], dict | None]:
     """Read every cached daily bar from the current bar backward.
 
@@ -363,40 +363,6 @@ def _probe_daily(mt5, symbol: str, timeframe: str) -> tuple[list[dict], dict | N
     return rows, None
 
 
-def _probe_index(mt5, symbol: str, timeframe: str) -> dict:
-    code = parse_timeframe(timeframe)
-    newest = _bar_at(mt5, symbol, code, 0)
-    if newest is None:
-        err_code, message = mt5.last_error()
-        return {
-            "symbol": symbol,
-            "timeframe": timeframe.upper(),
-            "bars": 0,
-            "error": "no bars",
-            "last_error": [err_code, message],
-        }
-    last = 0
-    step = 1
-    while step < 5_000_000 and _bar_at(mt5, symbol, code, step) is not None:
-        last = step
-        step *= 2
-    low, high = last, step
-    while low + 1 < high:
-        mid = (low + high) // 2
-        if _bar_at(mt5, symbol, code, mid) is None:
-            high = mid
-        else:
-            low = mid
-    oldest = _bar_at(mt5, symbol, code, low) or newest
-    return {
-        "symbol": symbol,
-        "timeframe": timeframe.upper(),
-        "bars": low + 1,
-        "time_from": _format_bar_time(oldest, timeframe),
-        "time_to": _format_bar_time(newest, timeframe),
-    }
-
-
 def probe_history(
     timeframe: str = "D1",
     symbol: str | None = None,
@@ -406,7 +372,10 @@ def probe_history(
 ) -> dict:
     """Find the oldest stored bar for each symbol and, by default, save that series.
 
-    Daily, weekly, and monthly history is requested from 1970 in one call.
+    Daily, weekly, and monthly bars already available to the terminal are read
+    with copy_rates_from_pos. This does not search M1. history_coverage reads
+    the earliest M1 bar already on disk. extend_history kind=m1 downloads older
+    months until the broker returns none inside the month.
     Files land in data/<terminal>/rates/<TIMEFRAME>/<SYMBOL>.csv.
     A survey.json next to them records bars, time_from, and time_to.
     """
@@ -417,6 +386,14 @@ def probe_history(
         parse_timeframe(timeframe)
     except ValueError as exc:
         return {"error": str(exc)}
+    if timeframe.upper() not in _DAILY_TIMEFRAMES:
+        return {
+            "error": (
+                "probe_history reads cached daily, weekly, or monthly bars. "
+                "history_coverage reads the earliest M1 bar already on disk and does not download. "
+                "extend_history with kind=m1 downloads older M1 months until one comes back empty."
+            )
+        }
 
     mt5 = import_mt5()
     if symbol:
@@ -430,44 +407,35 @@ def probe_history(
 
     surveyed = []
     for name in names:
-        if timeframe.upper() in _DAILY_TIMEFRAMES:
+        rows, _ = _probe_daily(mt5, name, timeframe)
+        if not rows:
+            mt5.symbol_select(name, True)
             rows, _ = _probe_daily(mt5, name, timeframe)
-            if not rows:
-                mt5.symbol_select(name, True)
-                rows, _ = _probe_daily(mt5, name, timeframe)
-            if not rows:
-                err_code, message = mt5.last_error()
-                entry = {
-                    "symbol": name,
-                    "timeframe": timeframe.upper(),
-                    "bars": 0,
-                    "error": "no bars",
-                    "last_error": [err_code, message],
-                }
-            else:
-                entry = {
-                    "symbol": name,
-                    "timeframe": timeframe.upper(),
-                    "bars": len(rows),
-                    "time_from": rows[0]["time"],
-                    "time_to": rows[-1]["time"],
-                }
-                if save:
-                    dest = rates_file(name, timeframe, "csv")
-                    writer = _TableWriter(dest, "csv")
-                    try:
-                        writer.write(rows)
-                    finally:
-                        writer.close()
-                    entry["path"] = str(dest)
-            surveyed.append(entry)
-            continue
-        entry = _probe_index(mt5, name, timeframe)
-        if save and entry.get("bars"):
-            saved = copy_rates(name, timeframe=timeframe, pause=0)
-            entry["path"] = saved.get("path")
-            if saved.get("error") and not saved.get("count"):
-                entry["save_error"] = saved["error"]
+        if not rows:
+            err_code, message = mt5.last_error()
+            entry = {
+                "symbol": name,
+                "timeframe": timeframe.upper(),
+                "bars": 0,
+                "error": "no bars",
+                "last_error": [err_code, message],
+            }
+        else:
+            entry = {
+                "symbol": name,
+                "timeframe": timeframe.upper(),
+                "bars": len(rows),
+                "time_from": rows[0]["time"],
+                "time_to": rows[-1]["time"],
+            }
+            if save:
+                dest = rates_file(name, timeframe, "csv")
+                writer = _TableWriter(dest, "csv")
+                try:
+                    writer.write(rows)
+                finally:
+                    writer.close()
+                entry["path"] = str(dest)
         surveyed.append(entry)
 
     with_bars = [item for item in surveyed if item.get("bars")]
@@ -494,15 +462,201 @@ def probe_history(
     return summary
 
 
+_HCC_INDEX_AT = 228
+_HCC_CHUNK_HEADER = 129
+_HCC_RECORD = 60
+_HCC_INDEX = struct.Struct("<IIHII")
+_HCC_TIME_MIN = 631_152_000
+_HCC_TIME_MAX = 4_102_444_800
+
+
+def _format_unix(stamp: int) -> str:
+    return datetime.fromtimestamp(stamp, UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _valid_hcc_chunk(data: bytes, offset: int, size: int) -> bool:
+    if size < _HCC_CHUNK_HEADER or (size - _HCC_CHUNK_HEADER) % _HCC_RECORD != 0:
+        return False
+    if offset < _HCC_INDEX_AT or offset + size > len(data):
+        return False
+    return struct.unpack_from("<H", data, offset)[0] == _HCC_CHUNK_HEADER
+
+
+def _chunk_m1_bounds(data: bytes, offset: int, size: int) -> tuple[int | None, int | None, int]:
+    """Earliest time, latest time, and M1 count in one day chunk.
+
+    The first record of a chunk is often a daily summary, not an M1 bar.
+    """
+    count = (size - _HCC_CHUNK_HEADER) // _HCC_RECORD
+    base = offset + _HCC_CHUNK_HEADER
+
+    def time_at(index: int) -> int:
+        return struct.unpack_from("<q", data, base + index * _HCC_RECORD)[0]
+
+    def volume_at(index: int) -> int:
+        return struct.unpack_from("<q", data, base + index * _HCC_RECORD + 40)[0]
+
+    start = 0
+    if count > 1:
+        rest = sum(volume_at(index) for index in range(1, count))
+        if time_at(0) >= time_at(1) or (rest > 0 and volume_at(0) >= 0.9 * rest):
+            start = 1
+    times = [
+        stamp
+        for index in range(start, count)
+        if _HCC_TIME_MIN < (stamp := time_at(index)) < _HCC_TIME_MAX
+    ]
+    if not times:
+        return None, None, 0
+    return min(times), max(times), len(times)
+
+
+def _hcc_file_span(path: Path) -> dict | None:
+    try:
+        data = path.read_bytes()
+    except PermissionError:
+        return {
+            "file": path.name,
+            "error": f"{path.name} is open in the terminal and could not be read",
+        }
+    except OSError as exc:
+        return {"file": path.name, "error": str(exc)}
+    earliest: int | None = None
+    latest: int | None = None
+    bars = 0
+    days = 0
+    earliest_offset: int | None = None
+    for index in range(366):
+        pos = _HCC_INDEX_AT + 18 * index
+        if earliest_offset is not None and pos >= earliest_offset:
+            break
+        if pos + 18 > len(data):
+            break
+        _idx, _updated, _unknown, size, offset = _HCC_INDEX.unpack_from(data, pos)
+        if not _valid_hcc_chunk(data, offset, size):
+            if days:
+                break
+            continue
+        if earliest_offset is None or offset < earliest_offset:
+            earliest_offset = offset
+        first, last, count = _chunk_m1_bounds(data, offset, size)
+        days += 1
+        bars += count
+        if first is not None and (earliest is None or first < earliest):
+            earliest = first
+        if last is not None and (latest is None or last > latest):
+            latest = last
+    if not days:
+        return None
+    return {
+        "bars": bars,
+        "time_from": _format_unix(earliest) if earliest is not None else None,
+        "time_to": _format_unix(latest) if latest is not None else None,
+    }
+
+
+def _cached_m1_span(bar_dir: Path) -> dict:
+    """Earliest and latest M1 bar stored in yearly .hcc files. Does not download."""
+    files = []
+    if bar_dir.exists():
+        files = sorted(path for path in bar_dir.glob("*.hcc") if path.stem.isdigit())
+    span: dict = {"bars": 0, "time_from": None, "time_to": None, "files": len(files)}
+    if not files:
+        return span
+    unread: list[str] = []
+    parsed = 0
+    for path in files:
+        one = _hcc_file_span(path)
+        if one is None or one.get("error"):
+            unread.append(one.get("error") if one else path.name)
+            continue
+        parsed += 1
+        span["bars"] += one["bars"]
+        if one["time_from"] and (span["time_from"] is None or one["time_from"] < span["time_from"]):
+            span["time_from"] = one["time_from"]
+        if one["time_to"] and (span["time_to"] is None or one["time_to"] > span["time_to"]):
+            span["time_to"] = one["time_to"]
+    if unread:
+        span["unread"] = unread
+    if parsed == 0:
+        span["error"] = "could not read M1 bars from the .hcc files"
+    return span
+
+
+def _m1_year_from_terminal(mt5, symbol: str, year: int) -> dict | None:
+    """Read one cached year through the terminal when the .hcc file is locked.
+
+    The request stays inside that year. It does not ask for the previous year.
+    """
+    mt5.symbol_select(symbol, True)
+    start = datetime(year, 1, 1, tzinfo=UTC)
+    end = datetime(year + 1, 1, 1, tzinfo=UTC)
+    bars = mt5.copy_rates_range(symbol, parse_timeframe("M1"), start, end)
+    rows = [
+        row
+        for row in _rows(bars)
+        if (moment := _row_time(row)) is not None
+        and start.replace(tzinfo=None) <= moment < end.replace(tzinfo=None)
+    ]
+    if not rows:
+        return None
+    rows.sort(key=lambda row: _row_time(row) or datetime.min)
+    return {
+        "bars": len(rows),
+        "time_from": _format_bar_time(rows[0], "M1"),
+        "time_to": _format_bar_time(rows[-1], "M1"),
+    }
+
+
+def _fill_locked_m1_years(span: dict, mt5, symbol: str) -> None:
+    still_unread = []
+    via_terminal: list[int] = []
+    for item in span.get("unread") or []:
+        text = str(item)
+        if "open in the terminal" not in text:
+            still_unread.append(item)
+            continue
+        year_text = text.split(".", 1)[0]
+        if not year_text.isdigit():
+            still_unread.append(item)
+            continue
+        extra = _m1_year_from_terminal(mt5, symbol, int(year_text))
+        if not extra:
+            still_unread.append(item)
+            continue
+        span["bars"] += extra["bars"]
+        if extra["time_from"] and (
+            span["time_from"] is None or extra["time_from"] < span["time_from"]
+        ):
+            span["time_from"] = extra["time_from"]
+        if extra["time_to"] and (span["time_to"] is None or extra["time_to"] > span["time_to"]):
+            span["time_to"] = extra["time_to"]
+        via_terminal.append(int(year_text))
+    if still_unread:
+        span["unread"] = still_unread
+    else:
+        span.pop("unread", None)
+    if via_terminal:
+        span["read_via_terminal"] = via_terminal
+    if span.get("bars"):
+        span.pop("error", None)
+
+
 def history_coverage(symbol: str, verify: bool = True) -> dict:
     """How far back stored bars and ticks go, without starting a history download.
 
     Depth comes from the terminal's own cache: yearly `.hcc` bar files and
-    monthly `.tkc` tick files under `bases/<server>/`. The official Python
-    calls use a UTC window. `copy_ticks_from` on a date before the first
-    `.tkc` file downloads the gap and does not return, so a live check is
-    only made inside the cached span: one month of daily bars at the start
-    of the bar cache, and one day of ticks at the start of the tick cache.
+    monthly `.tkc` tick files under `bases/<server>/`. The `m1` field is the earliest
+    and latest minute bar already in those `.hcc` files. A missing earlier
+    year has not been fetched, and this call does not request it. A year file
+    the terminal has open is read back with one request bounded to that year.
+    `extend_history` with `kind=m1` downloads older months.
+
+    The official Python calls use a UTC window. `copy_ticks_from` on a date
+    before the first `.tkc` file downloads the gap and does not return, so a
+    live check is only made inside the cached span when verify is true: one
+    month of daily bars at the start of the bar cache, and one day of ticks
+    at the start of the tick cache.
     See https://www.mql5.com/en/docs/python_metatrader5/mt5copyticksrange_py
     """
     error = require_ready()
@@ -526,7 +680,9 @@ def history_coverage(symbol: str, verify: bool = True) -> dict:
         "bar_files": len(bar_files),
         "tick_months": [tick_files[0], tick_files[-1]] if tick_files else [],
         "tick_files": len(tick_files),
+        "m1": _cached_m1_span(bar_dir),
     }
+    _fill_locked_m1_years(result["m1"], mt5, symbol)
     if not verify:
         return result
     mt5.symbol_select(symbol, True)
@@ -608,6 +764,37 @@ def fetch_d1_year(symbol: str, year: int) -> dict:
     }
 
 
+def fetch_m1_month(symbol: str, year: int, month: int) -> dict:
+    """Download one UTC month of M1 bars.
+
+    Bars outside that month are dropped. The terminal returns the oldest bar
+    it already has when the month is before cached history, and that bar is
+    not an empty result unless it is filtered out.
+    """
+    error = require_ready()
+    if error:
+        return error
+    mt5 = import_mt5()
+    mt5.symbol_select(symbol, True)
+    start, end = _month_window(year, month)
+    bars = mt5.copy_rates_range(symbol, parse_timeframe("M1"), start, end)
+    rows = [
+        row
+        for row in _rows(bars)
+        if (moment := _row_time(row)) is not None
+        and start.replace(tzinfo=None) <= moment < end.replace(tzinfo=None)
+    ]
+    count = len(rows)
+    return {
+        "symbol": symbol,
+        "month": f"{year:04d}-{month:02d}",
+        "bars": count,
+        "first": _format_bar_time(rows[0], "M1") if rows else None,
+        "last": _format_bar_time(rows[-1], "M1") if rows else None,
+        "last_error": None if count else list(mt5.last_error()),
+    }
+
+
 def fetch_tick_month(symbol: str, year: int, month: int) -> dict:
     """Download one UTC month of ticks. An empty month is the broker limit."""
     error = require_ready()
@@ -632,10 +819,19 @@ def fetch_tick_month(symbol: str, year: int, month: int) -> dict:
     }
 
 
+def _previous_month(year: int, month: int) -> tuple[int, int]:
+    if month == 1:
+        return year - 1, 12
+    return year, month - 1
+
+
 def extend_history(symbol: str, kind: str = "d1", max_steps: int = 80) -> dict:
     """Walk backward from the oldest cached chunk until one chunk is empty.
 
-    kind is "d1" (one year per step) or "ticks" (one month per step).
+    kind is "d1" (one UTC year), "m1" (one UTC month of minute bars), or
+    "ticks" (one UTC month). For m1, a bar returned from outside the requested
+    month does not count. The first empty month is the broker limit.
+    max_steps bounds one call. When the limit was not reached, call again.
     """
     edges = _cache_edges(symbol)
     if edges.get("error"):
@@ -653,14 +849,27 @@ def extend_history(symbol: str, kind: str = "d1", max_steps: int = 80) -> dict:
             if not step.get("bars"):
                 break
             year -= 1
+    elif kind == "m1":
+        cached = edges.get("m1") or {}
+        if cached.get("error"):
+            return {"error": cached["error"], "symbol": symbol}
+        if cached.get("time_from"):
+            moment = parse_when(cached["time_from"])
+            year, month = _previous_month(moment.year, moment.month)
+        else:
+            now = datetime.now(UTC)
+            year, month = now.year, now.month
+        for _ in range(max_steps):
+            step = fetch_m1_month(symbol, year, month)
+            steps.append(step)
+            if not step.get("bars"):
+                break
+            year, month = _previous_month(year, month)
     elif kind == "ticks":
         if edges["tick_months"]:
             oldest = edges["tick_months"][0]
             year, month = int(oldest[:4]), int(oldest[4:6])
-            if month == 1:
-                year, month = year - 1, 12
-            else:
-                month -= 1
+            year, month = _previous_month(year, month)
         else:
             now = datetime.now(UTC)
             year, month = now.year, now.month
@@ -669,27 +878,33 @@ def extend_history(symbol: str, kind: str = "d1", max_steps: int = 80) -> dict:
             steps.append(step)
             if not step.get("ticks"):
                 break
-            if month == 1:
-                year, month = year - 1, 12
-            else:
-                month -= 1
+            year, month = _previous_month(year, month)
     else:
-        return {"error": "kind must be d1 or ticks"}
+        return {"error": "kind must be d1, m1, or ticks"}
     after = history_coverage(symbol, verify=False)
+    downloaded = [step for step in steps if step.get("bars") or step.get("ticks")]
+    reached = bool(steps) and not (steps[-1].get("bars") or steps[-1].get("ticks"))
+    oldest_bar = downloaded[-1].get("first") if downloaded else None
+    if oldest_bar is None and reached and kind == "m1":
+        oldest_bar = (edges.get("m1") or {}).get("time_from")
     return {
         "symbol": symbol,
         "kind": kind,
         "before": {
             "bar_years": edges.get("bar_years"),
             "tick_months": edges.get("tick_months"),
+            "m1": edges.get("m1"),
         },
         "after": {
             "bar_years": after.get("bar_years"),
             "tick_months": after.get("tick_months"),
+            "m1": after.get("m1"),
         },
         "steps": len(steps),
+        "reached_broker_limit": reached,
+        "oldest_bar": oldest_bar,
         "stopped": steps[-1] if steps else None,
-        "downloaded": [step for step in steps if step.get("bars") or step.get("ticks")],
+        "downloaded": downloaded,
     }
 
 

@@ -86,13 +86,17 @@ Pass timeframe as a name from `mt5://timeframes`, such as `M15`, `H1`, or `D1`. 
 
 The default file is `data/<terminal>/rates/<TIMEFRAME>/<SYMBOL>.csv` with columns `time,open,high,low,close,tick_volume,spread,real_volume`. `format` is `csv` or `parquet`. Parquet needs the optional `parquet` extra.
 
-`probe_history` finds the oldest bar the terminal has. Omit `symbol` to survey every symbol, or pass a `group` mask. Daily files use the same rates path, and `survey.json` in that folder records the bar count and date range. The tool result is the summary, not the bars. `save` defaults to true.
+`probe_history` surveys daily, weekly, or monthly bars the terminal already has. Omit `symbol` to survey every symbol, or pass a `group` mask. Daily files use the same rates path, and `survey.json` in that folder records the bar count and date range. The tool result is the summary, not the bars. `save` defaults to true. It does not measure M1.
+
+`history_coverage` reads the earliest and latest M1 bar already stored in the terminal's yearly `.hcc` files. It does not request an earlier year. `m1.time_from` is that earliest minute. A missing earlier year has not been fetched, and it is not proof the broker lacks that year. A year file the terminal has open is read back with one request bounded to that year. `verify=true` only samples inside the cache that is already there.
+
+`extend_history` with `kind=m1` downloads one UTC month at a time, starting with the month before `m1.time_from`. Bars whose time falls outside the requested month are ignored, because the terminal returns the oldest bar it already has instead of an empty array. The first month with no bars inside it is as far back as the broker will serve, and `reached_broker_limit` is true. `oldest_bar` is that earliest minute. `max_steps` is the number of months in one call. When `reached_broker_limit` is false, call it again. The next call continues from the new cache edge. `kind=d1` is the same walk in UTC years. `kind=ticks` is the same walk in UTC months of ticks.
 
 ## Ticks
 
 `copy_ticks` writes ticks to `data/ticks/<terminal>/<SYMBOL>.csv` unless `save_to` is set. Pass `date_from` and `date_to`, or set `all_history=true` for an unbounded download. Unbounded tick history is large, so `all_history` is required when both dates are omitted. The download uses every stored tick flag.
 
-Daily bars can be probed with `copy_rates_from_pos`. Ticks cannot. `copy_ticks_from` and `CopyTicks` have no position index. The first tick in the array is only the first tick at or after the start time you passed. A request for one tick from a date before the cached `.tkc` months still makes the terminal download that gap, and the call blocks until the download finishes. `history_coverage` reports the months already stored and does not find older ones. `extend_history` with `kind=ticks` downloads one UTC month at a time, oldest cached month first, and stops when a month comes back empty. That empty month is the broker limit.
+Ticks cannot be probed with a bar position index. `copy_ticks_from` and `CopyTicks` have no position index. The first tick in the array is only the first tick at or after the start time you passed. A request for one tick from a date before the cached `.tkc` months still makes the terminal download that gap, and the call blocks until the download finishes. `history_coverage` reports the months already stored and does not find older ones. `extend_history` with `kind=ticks` downloads one UTC month at a time, oldest cached month first, and stops when a month comes back empty. That empty month is the broker limit.
 """
 
 _ACCOUNT = """\

@@ -51,7 +51,7 @@ Badge links use `OWNER/mt5-mcp`. Swap in your GitHub account when the repository
 | --- | --- |
 | **Several terminals, one registry** | Demo and live, or two brokers, listed by id. The same `terminal64.exe` can appear twice when two logins share an install. |
 | **A broker, saved once** | `capture_profile` writes every symbol: the full `symbol_info` record and the weekday sessions. Compare two profiles on spread, swap, stops, contract size, filling mode, and hours. |
-| **History you can actually keep** | Bars and ticks land in CSV (or Parquet). A probe walks every symbol and records how far back the terminal can go. |
+| **History you can actually keep** | Bars and ticks land in CSV (or Parquet). `history_coverage` reads the earliest M1 bar already on disk. `extend_history` with `kind=m1` downloads older months until the broker stops. |
 | **Headless Strategy Tester** | Compile, smoke-test one day, write a tester ini, run it, parse the HTML report, and diff two runs. Each run keeps a snapshot of the EA sources. |
 | **Account, read in place** | Balance, equity, margin, floating profit, open positions, pending orders. |
 | **Agents that already know the workflow** | Resources and prompts ship with the server, so the model reads the guide before it improvises. |
@@ -166,9 +166,11 @@ Behind that: `list_terminals` → `launch_terminal` if needed → `use_terminal`
 
 > Export H1 EURUSD from 2024-01-01 through 2024-12-31 and quote the first and last bars.
 
-`copy_rates` pages until the terminal runs out when you omit the dates. Daily bars can be probed without downloading the whole series: `copy_rates_from_pos` jumps to the oldest bar. On Darwinex-Demo that is 22 April 1998 for XAUUSD and 7 August 2008 for SP500.
+`copy_rates` pages until the terminal runs out when you omit the dates. A date window keeps only bars inside that window. It is not a depth probe: a request before cached history comes back as the oldest bar the terminal already has, and that bar is discarded.
 
-Ticks cannot be probed that way. `CopyTicks` / `copy_ticks_from` have no bar-style position index. Index 0 is only the oldest tick inside the response, which starts at the date you pass in. A request for one tick from a date before the local cache still makes the terminal download the gap, and the call does not return until that download finishes. `history_coverage` reads the `.tkc` months already on disk and does not discover older months. `extend_history` with `kind=ticks` downloads one UTC month at a time from the oldest cached month backward and stops when a month comes back empty. That empty month is the broker limit. One month of XAUUSD on Darwinex-Demo was about 10 million ticks and about two and a half minutes.
+Two calls answer how far M1 goes. `history_coverage` reads the earliest minute already in the yearly `.hcc` files and does not download. `extend_history` with `kind=m1` downloads one UTC month at a time until a month contains no bars. That empty month is the broker limit. `max_steps` caps one call. Call it again when `reached_broker_limit` is false.
+
+Ticks cannot be probed with a position index. `CopyTicks` / `copy_ticks_from` start at the date you pass in. A request for one tick from a date before the local cache still makes the terminal download the gap, and the call does not return until that download finishes. `history_coverage` reads the `.tkc` months already on disk and does not discover older months. `extend_history` with `kind=ticks` downloads one UTC month at a time from the oldest cached month backward and stops when a month comes back empty. That empty month is the broker limit. One month of XAUUSD on Darwinex-Demo was about 10 million ticks and about two and a half minutes.
 
 ### Backtest an EA you already wrote
 
@@ -230,10 +232,10 @@ The path looks like this:
 | `symbol_info` | The full `symbol_info` record, the latest tick, and weekday sessions. |
 | `symbol_tick` | Latest bid, ask, last, and time. |
 | `select_symbol` | Adds or removes a symbol in Market Watch so history can download. |
-| `copy_rates` | Bars, paged until the terminal runs out, written to CSV or Parquet. Omit both dates for every bar the broker still has. The result is a path, a count, a range, and a short preview. |
-| `probe_history` | How far back history goes. Omit the symbol to survey every symbol, or pass a group mask. Daily bars go to `data/<terminal>/rates/D1/<SYMBOL>.csv` with a `survey.json` index. Columns: `time,open,high,low,close,tick_volume,spread,real_volume`. |
-| `history_coverage` | Tick months and bar years already stored for one symbol. Does not discover older ticks. |
-| `extend_history` | Downloads older history one chunk at a time. `kind=d1` is one UTC year. `kind=ticks` is one UTC month. Stops at the first chunk that falls outside the requested window. |
+| `copy_rates` | Bars, paged until the terminal runs out, written to CSV or Parquet. Omit both dates for every bar the terminal still serves. A date window keeps only bars inside it. The result is a path, a count, a range, and a short preview. |
+| `probe_history` | How far back daily, weekly, or monthly bars already go. Omit the symbol to survey every symbol, or pass a group mask. Daily bars go to `data/<terminal>/rates/D1/<SYMBOL>.csv` with a `survey.json` index. This does not measure M1. |
+| `history_coverage` | Earliest and latest M1 bar already stored in the yearly `.hcc` files, plus cached bar years and tick months. Does not download. |
+| `extend_history` | Downloads older history one chunk at a time. `kind=m1` is one UTC month of minute bars and stops when a month has no bars inside it. `kind=d1` is one UTC year. `kind=ticks` is one UTC month of ticks. `max_steps` caps one call. |
 | `copy_ticks` | Ticks to a file for a date range. `all_history=true` is required when dates are omitted. A start date before the cached `.tkc` months blocks while the terminal downloads the gap. |
 
 Bar sizes for `copy_rates`, `probe_history`, and the tester: `M1` `M2` `M3` `M4` `M5` `M6` `M10` `M12` `M15` `M20` `M30` `H1` `H2` `H3` `H4` `H6` `H8` `H12` `D1` `W1` `MN1`. The integer codes the terminal stores are in the `mt5://timeframes` resource.

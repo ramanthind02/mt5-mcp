@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import struct
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -260,6 +261,188 @@ def test_probe_history_saves_daily_bars(tmp_path: Path, monkeypatch):
     csv_path = Path(survey["symbols"][0]["path"])
     header = csv_path.read_text(encoding="utf-8").splitlines()[0]
     assert header == "time,open,high,low,close,tick_volume,spread,real_volume"
+
+
+def _write_hcc(path: Path, days: list[list[tuple]]) -> None:
+    """Minimal yearly .hcc: 228-byte header, day index, 60-byte M1 records."""
+    chunks = []
+    for records in days:
+        body = bytearray(129)
+        struct.pack_into("<H", body, 0, 129)
+        for record in records:
+            body += struct.pack("<q4dqiq", *record)
+        chunks.append(bytes(body))
+    blob = bytearray(228 + 18 * len(chunks))
+    offset = len(blob)
+    pieces = [blob]
+    for index, chunk in enumerate(chunks):
+        struct.pack_into("<IIHII", blob, 228 + 18 * index, index, 0, 0, len(chunk), offset)
+        pieces.append(chunk)
+        offset += len(chunk)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"".join(pieces))
+
+
+def test_history_coverage_reads_cached_m1_without_downloading(tmp_path: Path, monkeypatch):
+    _activate(tmp_path)
+    summary = int(datetime(2025, 11, 1, tzinfo=UTC).timestamp())
+    first = int(datetime(2025, 11, 1, 1, 0, tzinfo=UTC).timestamp())
+    later = int(datetime(2025, 11, 2, 12, 0, tzinfo=UTC).timestamp())
+    folder = tmp_path / "data" / "bases" / "Demo" / "history" / "XAUUSD"
+    _write_hcc(
+        folder / "2025.hcc",
+        [
+            [(summary, 1, 1, 1, 1, 100_000, 1, 0), (first, 2, 2, 2, 2, 10, 1, 0)],
+            [(later, 3, 3, 3, 3, 5, 1, 0)],
+        ],
+    )
+
+    class Fake:
+        def account_info(self):
+            return SimpleNamespace(server="Demo")
+
+        def copy_rates_range(self, *args):
+            raise AssertionError("history_coverage must not download")
+
+        def copy_rates_from_pos(self, *args):
+            raise AssertionError("history_coverage must not download")
+
+    monkeypatch.setattr(market, "import_mt5", lambda: Fake())
+    result = market.history_coverage("XAUUSD", verify=False)
+    assert result["m1"]["time_from"] == "2025-11-01 01:00:00"
+    assert result["m1"]["time_to"] == "2025-11-02 12:00:00"
+    assert result["m1"]["bars"] == 2
+    assert result["bar_years"] == ["2025", "2025"]
+
+
+def test_history_coverage_reads_a_locked_year_inside_that_year(tmp_path: Path, monkeypatch):
+    _activate(tmp_path)
+    folder = tmp_path / "data" / "bases" / "Demo" / "history" / "XAUUSD"
+    folder.mkdir(parents=True)
+    (folder / "2025.hcc").write_bytes(b"locked")
+
+    def locked_span(path: Path) -> dict:
+        return {
+            "file": path.name,
+            "error": f"{path.name} is open in the terminal and could not be read",
+        }
+
+    monkeypatch.setattr(market, "_hcc_file_span", locked_span)
+    november = int(datetime(2025, 11, 7, 23, 48, tzinfo=UTC).timestamp())
+    older = int(datetime(2024, 6, 1, tzinfo=UTC).timestamp())
+    seen = []
+
+    class Fake:
+        def account_info(self):
+            return SimpleNamespace(server="Demo")
+
+        def symbol_select(self, symbol, visible):
+            return True
+
+        def copy_rates_range(self, symbol, timeframe, start, end):
+            seen.append((start.year, end.year))
+            return [
+                {"time": older, "open": 1, "high": 1, "low": 1, "close": 1},
+                {"time": november, "open": 2, "high": 2, "low": 2, "close": 2},
+            ]
+
+    monkeypatch.setattr(market, "import_mt5", lambda: Fake())
+    result = market.history_coverage("XAUUSD", verify=False)
+    assert seen == [(2025, 2026)]
+    assert result["m1"]["time_from"] == "2025-11-07 23:48:00"
+    assert result["m1"]["bars"] == 1
+    assert "unread" not in result["m1"]
+
+
+def test_extend_history_m1_stops_when_the_month_is_outside_the_window(tmp_path: Path, monkeypatch):
+    _activate(tmp_path)
+    first = int(datetime(2025, 11, 7, 23, 48, tzinfo=UTC).timestamp())
+    folder = tmp_path / "data" / "bases" / "Demo" / "history" / "XAUUSD"
+    _write_hcc(folder / "2025.hcc", [[(first, 1, 1, 1, 1, 10, 1, 0)]])
+    october = int(datetime(2025, 10, 15, tzinfo=UTC).timestamp())
+    older = int(datetime(2024, 1, 1, tzinfo=UTC).timestamp())
+    seen = []
+
+    class Fake:
+        def account_info(self):
+            return SimpleNamespace(server="Demo")
+
+        def symbol_select(self, symbol, visible):
+            return True
+
+        def copy_rates_range(self, symbol, timeframe, start, end):
+            seen.append(start.month)
+            stamp = october if start.month == 10 else older
+            return [
+                {
+                    "time": stamp,
+                    "open": 1,
+                    "high": 1,
+                    "low": 1,
+                    "close": 1,
+                    "tick_volume": 1,
+                    "spread": 1,
+                    "real_volume": 0,
+                }
+            ]
+
+        def last_error(self):
+            return (1, "Success")
+
+    monkeypatch.setattr(market, "import_mt5", lambda: Fake())
+    result = market.extend_history("XAUUSD", kind="m1", max_steps=4)
+    assert seen == [10, 9]
+    assert result["reached_broker_limit"] is True
+    assert result["oldest_bar"] == "2025-10-15 00:00:00"
+    assert result["downloaded"][0]["month"] == "2025-10"
+    assert result["stopped"]["bars"] == 0
+
+
+def test_probe_history_refuses_m1_position_search(tmp_path: Path, monkeypatch):
+    _activate(tmp_path)
+
+    class Fake:
+        def copy_rates_from_pos(self, *args):
+            raise AssertionError("M1 probe must not search positions")
+
+    monkeypatch.setattr(market, "import_mt5", lambda: Fake())
+    result = market.probe_history("M1", symbol="XAUUSD")
+    assert "history_coverage" in result["error"]
+    assert "kind=m1" in result["error"]
+
+
+def test_copy_rates_drops_bars_outside_the_requested_window(tmp_path: Path, monkeypatch):
+    _activate(tmp_path)
+    november = int(datetime(2025, 11, 7, tzinfo=UTC).timestamp())
+    january = int(datetime(2026, 1, 2, tzinfo=UTC).timestamp())
+
+    class Fake:
+        def symbol_select(self, symbol, visible):
+            return True
+
+        def copy_rates_from(self, symbol, timeframe, cursor, count):
+            return [
+                {"time": november, "open": 1, "high": 1, "low": 1, "close": 1},
+                {"time": january, "open": 2, "high": 2, "low": 2, "close": 2},
+            ]
+
+        def last_error(self):
+            return (1, "ok")
+
+    monkeypatch.setattr(market, "import_mt5", lambda: Fake())
+    dest = tmp_path / "window.csv"
+    result = market.copy_rates(
+        "XAUUSD",
+        "M1",
+        date_from="2026-01-01",
+        date_to="2026-01-08",
+        save_to=str(dest),
+        pause=0,
+    )
+    assert result["count"] == 1
+    assert result["time_from"].startswith("2026-01-02")
+    text = dest.read_text(encoding="utf-8")
+    assert "2025-11-07" not in text
 
 
 def test_copy_ticks_requires_all_history_flag(tmp_path: Path):

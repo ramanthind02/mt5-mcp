@@ -22,6 +22,8 @@ mcp = MCPServer(
         "account_health, positions, and orders are read-only. "
         "capture_profile writes every symbol on the broker to a JSON file. "
         "copy_rates and copy_ticks write history to files and return a short preview. "
+        "history_coverage reads the earliest M1 bar already on disk and does not download. "
+        "extend_history with kind=m1 downloads older M1 one UTC month at a time until a month has no bars. "
         "The server never logs in. Log in from the terminal window. "
         "An existing Expert Advisor is compiled and tested as-is. "
         "compare_profiles diffs saved broker profiles. "
@@ -198,8 +200,12 @@ def copy_rates(
 ) -> dict:
     """Download bars, paging until the terminal runs out, and write CSV or Parquet.
 
-    Omit both dates to request every bar the broker still has. The result is a
-    file path, a count, a time range, and a short preview.
+    Omit both dates to request every bar the terminal still serves. Pass both
+    dates for one window. Bars outside that window are dropped, including the
+    older bar the terminal returns when the window is before cached history.
+    This is not how far back M1 goes. Use history_coverage for bars already on
+    disk and extend_history with kind=m1 to download older months.
+    The result is a file path, a count, a time range, and a short preview.
     """
     return market.copy_rates(symbol, timeframe, date_from, date_to, save_to, format)
 
@@ -212,21 +218,27 @@ def probe_history(
     limit: int = 0,
     save: bool = True,
 ) -> dict:
-    """Probe how far back history goes, and save that series by default.
+    """Probe how far back daily, weekly, or monthly bars already go, and save that series by default.
 
     Omit symbol to survey every symbol, or pass a group mask. Daily bars are
     stored as data/<terminal>/rates/D1/<SYMBOL>.csv with a survey.json index.
-    The tool result is the summary, not the bars.
+    The tool result is the summary, not the bars. This does not measure M1.
+    history_coverage reads the earliest M1 bar already on disk.
+    extend_history with kind=m1 downloads older months until one comes back empty.
     """
     return market.probe_history(timeframe, symbol, group, limit, save)
 
 
 @mcp.tool(annotations=_READ)
 def history_coverage(symbol: str, verify: bool = True) -> dict:
-    """Report stored daily and tick depth for one symbol without downloading a gap.
+    """Report stored bar and tick depth for one symbol without downloading a gap.
 
-    Bar years and tick months come from the terminal cache. When verify is true,
-    one bounded UTC request is made inside that cache for daily bars and for ticks.
+    m1.time_from is the earliest minute bar already in the yearly .hcc files.
+    A missing earlier year has not been fetched. A year file the terminal has
+    open is read back with one request bounded to that year. This call does
+    not request an earlier year. Bar years and tick months come from the same
+    cache. When verify is true, one bounded UTC request is made inside that
+    cache for daily bars and for ticks.
     """
     return market.history_coverage(symbol, verify)
 
@@ -236,6 +248,10 @@ def extend_history(symbol: str, kind: str = "d1", max_steps: int = 80) -> dict:
     """Download older history one chunk at a time and stop at the first empty chunk.
 
     kind=d1 walks one UTC year backward from the oldest cached year.
+    kind=m1 walks one UTC month backward from the month before the earliest
+    cached M1 bar. A bar outside that month does not count. The first month
+    with no bars inside it is the broker limit. max_steps is the number of
+    months in one call. Call again when reached_broker_limit is false.
     kind=ticks walks one UTC month backward from the oldest cached tick month.
     """
     return market.extend_history(symbol, kind, max_steps)
